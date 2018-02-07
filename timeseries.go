@@ -78,6 +78,11 @@ var defaultGranularities = []Granularity{
 	{time.Hour, 24},
 }
 
+type PointValue struct {
+	Time  time.Time
+	Value float64
+}
+
 // Clock specifies the needed time related functions used by the time series.
 // To use a custom clock implement the interface and pass it to the time series constructor.
 // The default clock uses time.Now()
@@ -124,7 +129,7 @@ func WithGranularities(g []Granularity) Option {
 type TimeSeries struct {
 	clock       Clock
 	levels      []level
-	pending     int
+	pending     float64
 	pendingTime time.Time
 	latest      time.Time
 }
@@ -179,12 +184,12 @@ func createLevels(clock Clock, granularities []Granularity) []level {
 }
 
 // Increase adds amount at current time.
-func (t *TimeSeries) Increase(amount int) {
+func (t *TimeSeries) Increase(amount float64) {
 	t.IncreaseAtTime(amount, t.clock.Now())
 }
 
 // IncreaseAtTime adds amount at a specific time.
-func (t *TimeSeries) IncreaseAtTime(amount int, time time.Time) {
+func (t *TimeSeries) IncreaseAtTime(amount float64, time time.Time) {
 	if time.After(t.latest) {
 		t.latest = time
 	}
@@ -198,7 +203,7 @@ func (t *TimeSeries) IncreaseAtTime(amount int, time time.Time) {
 	}
 }
 
-func (t *TimeSeries) increaseAtTime(amount int, time time.Time) {
+func (t *TimeSeries) increaseAtTime(amount float64, time time.Time) {
 	for i := range t.levels {
 		if time.Before(t.levels[i].latest().Add(-1 * t.levels[i].duration())) {
 			continue
@@ -239,6 +244,12 @@ func (t *TimeSeries) Recent(duration time.Duration) (float64, error) {
 	return t.Range(now.Add(-duration), now)
 }
 
+// Recent returns the sum over [now-duration, now).
+func (t *TimeSeries) RecentValues(duration time.Duration) ([]PointValue, error) {
+	now := t.clock.Now()
+	return t.RangeValues(now.Add(-duration), now)
+}
+
 // Range returns the sum over the given range [start, end).
 // ErrBadRange is returned if start is after end.
 // ErrRangeNotCovered is returned if the range lies outside the time series.
@@ -258,6 +269,27 @@ func (t *TimeSeries) Range(start, end time.Time) (float64, error) {
 		}
 	}
 	return t.levels[len(t.levels)-1].sumInterval(start, end, t.latest), nil
+}
+
+// RangeValues returns the values over the given range [start, end).
+// ErrBadRange is returned if start is after end.
+// ErrRangeNotCovered is returned if the range lies outside the time series.
+func (t *TimeSeries) RangeValues(start, end time.Time) ([]PointValue, error) {
+	if start.After(end) {
+		return nil, ErrBadRange
+	}
+	t.advance(t.clock.Now())
+	if ok, err := t.intersects(start, end); !ok {
+		return nil, err
+	}
+	for i := range t.levels {
+		// use !start.Before so earliest() is included
+		// if we use earliest().Before() we won't get start
+		if !start.Before(t.levels[i].earliest()) {
+			return t.levels[i].interval(start, end, t.latest), nil
+		}
+	}
+	return t.levels[len(t.levels)-1].interval(start, end, t.latest), nil
 }
 
 func (t *TimeSeries) intersects(start, end time.Time) (bool, error) {

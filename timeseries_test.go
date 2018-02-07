@@ -129,6 +129,57 @@ func TestRecentSeconds(t *testing.T) {
 	}
 }
 
+func testEq(a, b []PointValue) bool {
+
+	if a == nil && b == nil {
+		return true
+	}
+
+	if a == nil || b == nil {
+		return false
+	}
+
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func TestRecentSecondsRange(t *testing.T) {
+	ts, clock := setup()
+
+	expected := []PointValue{}
+	clock.Add(time.Second * 48)
+	ts.Increase(1)
+	expected = append(expected, PointValue{clock.Now(), 1})
+	clock.Add(time.Second * 10)
+	ts.Increase(2)
+	expected = append(expected, PointValue{clock.Now(), 2})
+	clock.Add(time.Second * 1)
+	ts.Increase(3)
+	expected = append(expected, PointValue{clock.Now(), 3})
+
+	// to include the last element
+	clock.Add(time.Second * 1)
+
+	res, _ := ts.RecentValues(time.Second * 3)
+	if !testEq(res, expected[1:]) {
+		t.Errorf("expected %v got %v", expected[1:], res)
+	}
+
+	res, _ = ts.RecentValues(time.Second * 12)
+	if !testEq(res, expected) {
+		t.Errorf("expected %v got %v", expected, res)
+	}
+}
+
 func TestRecentMinutes(t *testing.T) {
 	ts, clock := setup()
 
